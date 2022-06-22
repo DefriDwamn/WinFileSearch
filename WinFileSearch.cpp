@@ -33,8 +33,8 @@ void SetExtensionsFromFile();
 int main()
 {
     SetConsoleOutputCP(1251); SetConsoleCP(1251);
-
-    UseExtensionValidator = 0;
+    
+    UseExtensionValidator = 0; // add switch mode feature
     extensionsFile = "EXT.txt";
     outputFile = "OUT.txt";
 
