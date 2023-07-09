@@ -1,142 +1,114 @@
-﻿#include <string>
-#include <iterator>
-#include <fstream>
 #include <filesystem>
-#include <vector>
+#include <fstream>
 #include <iostream>
-#include <fcntl.h>
-#include <io.h>
-#include <windows.h>
-using namespace std;
-using namespace filesystem;
+#include <string>
+#include <vector>
 
-string searchPath;
-string searchTarget;
+struct SearchData {
+  std::string searchPath;
+  std::vector<std::string> searchTargets;
+  std::string outputFile;
+  std::string extsFile;
+  size_t checkedFiles = 0;
+  size_t checkedStrs = 0;
+  size_t matchStrs = 0;
+};
 
-string outputFile;
-string extensionsFile;
+std::vector<std::string> Split(const std::string& str, char delimiter) {
+  std::vector<std::string> strs;
+  size_t last = 0;
+  for (size_t i = 0; i != str.size(); ++i) {
+    if (str[i] == delimiter) {
+      strs.push_back(str.substr(last, (i - last)));
+      last = i + 1;
+    }
+  }
+  strs.push_back(str.substr(last, str.size() - last));
+  return strs;
+}
 
-bool UseExtensionValidator;
+std::vector<std::string> extensionsFromFile(std::string& extFileName) {
+  std::ifstream ifs(extFileName);
+  std::vector<std::string> allowedExtensions;
+  std::string ext;
+  while (ifs >> ext)
+    if (!ext.empty()) allowedExtensions.push_back('.' + ext);
+  ifs.close();
+  return allowedExtensions;
+}
 
-int SearchData[3];
+bool ExtensionValidator(const std::vector<std::string>& exts,
+                        const std::string& nowExt) {
+  if (exts.size() == 0) return true;
+  for (const std::string& allowedExt : exts) {
+    if (nowExt == allowedExt) return true;
+  }
+  return false;
+}
 
-vector<string> allowedExtensions;
+void WriteInOutputFile(std::string& outputFile, const std::string& line,
+                       const std::string& file) {
+  std::ofstream ofileStream(outputFile, std::ios::app);
+  ofileStream << "File: " << file << "\n --Line: " + line + "\n\n";
+  ofileStream.close();
+}
 
-void Search();
-bool ExtensionValidator(string inuptExtension);
-void SearchInFile(string filePath);
-void WriteInOutputFile(string line, string file);
-void ClearOutputFile();
-void CreateExtensionsFile();
-void SetExtensionsFromFile();
+void SearchInFile(SearchData& data, const std::string& filePath) {
+  std::ifstream ifs;
+  ifs.open(filePath);
+  std::string line;
+  while (getline(ifs, line)) {
+    ++data.checkedStrs;
+    for (std::string& str : data.searchTargets) {
+      if (line.find(str) != std::string::npos) {
+        ++data.matchStrs;
+        WriteInOutputFile(data.outputFile, line, filePath);
+      }
+    }
+  }
+  ifs.close();
+}
 
-int main()
-{
-    SetConsoleOutputCP(1251); SetConsoleCP(1251);
-    
-    UseExtensionValidator = 0; // add switch mode feature
-    extensionsFile = "EXT.txt";
-    outputFile = "OUT.txt";
+void PrintSearchResult(SearchData& data) {
+  std::cout << "*Viewed files: " << data.checkedFiles
+            << "; Lines: " << data.checkedStrs
+            << "; Match-Lines: " << data.matchStrs << std::endl;
+  std::cout << "*Output file: "
+            << std::filesystem::absolute(data.outputFile).generic_string()
+            << std::endl;
+}
 
-    CreateExtensionsFile();
-    cout << "В файле EXT.txt(В папке с программой) укажите расширения файлов для поиска с новой строки!" << endl;
-
-    while (true) {
-        SearchData[0] = 0; SearchData[1] = 0; SearchData[2] = 0;
-
-        cout << "Введите путь: "; getline(cin, searchPath);
-        cout << "Поиск: "; getline(cin, searchTarget);
-
-        SetExtensionsFromFile();
-        ClearOutputFile();
-
-        try {
-            Search();
-
-            cout << "*Просмотрено файлов: " << SearchData[0] << "; Строк: " << SearchData[1] << "; Match-Строк: " << SearchData[2] << endl;
-            cout << "*Output file: " << absolute(outputFile).generic_string() << endl;
-        } catch(exception& e) {
-            cerr << e.what();
+void Search(SearchData& data) {
+  try {
+    std::vector<std::string> exts = extensionsFromFile(data.extsFile);
+    for (const auto& dirEntry :
+         std::filesystem::recursive_directory_iterator(data.searchPath)) {
+      if (dirEntry.is_regular_file()) {
+        std::string dirEntry_string = dirEntry.path().generic_string();
+        std::string ext_string = dirEntry.path().extension().generic_string();
+        if (ExtensionValidator(exts, ext_string)) {
+          SearchInFile(data, dirEntry_string);
         }
+        ++data.checkedFiles;
+      }
     }
-
-    return 0;
+    PrintSearchResult(data);
+  } catch (std::exception& error) {
+    std::cerr << error.what() << std::endl;
+  }
 }
 
-void Search() {
-    for (const auto& dir_entry : recursive_directory_iterator(searchPath)) {
-        if (dir_entry.is_regular_file()) {
-            string dir_entry_string = dir_entry.path().generic_string();
-            string extension = dir_entry.path().extension().generic_string();
+int main() {
+  while (true) {
+    SearchData searchData{.outputFile = "OUT.txt", .extsFile = "EXTS.txt"};
 
-            if (ExtensionValidator(extension)) {
-                SearchInFile(dir_entry_string);
-            }
-            SearchData[0]++;
-        }
-    }
-}
+    std::cout << "Enter the path: ";
+    getline(std::cin, searchData.searchPath);
+    std::cout << "Enter the target: ";
+    std::string strTarget;
+    getline(std::cin, strTarget);
+    searchData.searchTargets = Split(strTarget, ' ');
 
-bool ExtensionValidator(string inuptExtension)
-{
-    bool extensionMatch = false;
-
-    if (!UseExtensionValidator)
-        return true;
-
-    for (const string& allowedExtension : allowedExtensions) {
-        if (inuptExtension == allowedExtension) {
-            extensionMatch = true;
-            break;
-        }
-        extensionMatch = false;
-    }
-    return extensionMatch;
-}
-
-void SearchInFile(string filePath)
-{
-    ifstream fileStream;
-    fileStream.open(filePath);
-    string line;
-    while (getline(fileStream, line)) {
-        SearchData[1]++;
-        if (line.find(searchTarget) != string::npos) {
-            WriteInOutputFile(line, filePath);
-            SearchData[2]++;
-        }
-    }
-    fileStream.close();
-}
-
-void WriteInOutputFile(string line, string file)
-{
-    ofstream ofileStream(outputFile, ios::app);
-    ofileStream << "File: " << file << endl << "--Line: " + line + "\n\n";
-    ofileStream.close();
-}
-
-void ClearOutputFile()
-{
-    ofstream cofs(outputFile, ios::out | ios::trunc);
-    cofs.close();
-}
-
-void CreateExtensionsFile()
-{
-    ofstream oExtFileStream;
-    oExtFileStream.open(extensionsFile, ios::app);
-    oExtFileStream.close();
-}
-
-void SetExtensionsFromFile()
-{
-    ifstream extFileStream;
-    extFileStream.open(extensionsFile);
-    string line;
-    while (getline(extFileStream, line)) {
-        if (line[0] == '.' )
-            allowedExtensions.push_back(line);
-    }
-    extFileStream.close();
+    Search(searchData);
+  }
 }
